@@ -4,6 +4,8 @@
 #include <iostream>
 #include <vector>
 #include <cstring>
+#include <optional>
+// 1.4 - We are going to use an optional value
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -27,6 +29,15 @@ namespace biniutils {
     }
 }
 
+// 1.6 - We are going to create an struct that contains
+struct QueueFamilyIndexes {
+    std::optional<uint32_t> graphicsFamily;
+
+    // 1.7 Convienience method to verify that they have value
+    bool isComplete() {
+        return graphicsFamily.has_value();
+    }
+};
 // how to define a class in C++
 // can be done in a single file 
 // can be separated in header + definition
@@ -52,6 +63,17 @@ class FirstVulkanExample {
     // Need to create a Vulkan instance.
     VkInstance instance;
 
+    // 1.2 - We need an instance that saves the reference of the physical device
+    // used by Vulkan.
+    // Important: This reference is cleanup when destroying Vulkan instance.
+    VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+
+    // 1.8 - Add logical device - It can be n by physical device.
+    VkDevice device;
+
+    // When logical device is created a graphics queue is created.
+    VkQueue graphicsQueue;
+
     void initWindow() {
         glfwInit();
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -68,6 +90,117 @@ class FirstVulkanExample {
         }
         // Process of vulkan setup
         createVulkanInstance();
+        // 1 - Once the instance is created we need to select a physical device to interact with
+        pickPhysicalDevice();
+        biniutils::logstdout("Physical device being used.");
+
+        // 9 - Once physical device is validated create logical devices.
+        createLogicalDevice();
+
+        // 11 - Create surface where we are going to be drawing.
+        // We are going to use a Vulkan Extension - VK_KHR_surface para interactuar con una ventana.
+        // VkSurfaceKHR surface;
+    }
+
+    void createLogicalDevice() {
+        // Get the families.
+        QueueFamilyIndexes indexes = findQueueFamilies(physicalDevice);
+
+        // We start to create structs with information to create the logical device.
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = indexes.graphicsFamily.value();
+        queueCreateInfo.queueCount = 1; // For now.
+        
+        // In Vulkan you need to assign a priority to the queues.
+        float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+        
+        // Struct that defines the requirements on the physical device. Nothing special at the moment.
+        VkPhysicalDeviceFeatures deviceFeatures{};
+
+        VkDeviceCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        createInfo.pQueueCreateInfos = &queueCreateInfo;
+        createInfo.queueCreateInfoCount = 1;
+        createInfo.pEnabledFeatures = &deviceFeatures;
+        createInfo.enabledExtensionCount = 0;
+
+        // We add layers to validate in logical device.
+        if (enableValidationLayers) {
+            createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+            createInfo.ppEnabledLayerNames = validationLayers.data();
+        } else {
+            createInfo.enabledLayerCount = 0;
+        }
+
+        // Now we create the device.
+        if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &device) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create logical device!");
+        }
+
+        // Get graphics queue reference to use on the future.
+        vkGetDeviceQueue(device, 0, indexes.graphicsFamily.value(), &graphicsQueue);
+    }
+
+    void pickPhysicalDevice() {
+        // Search Video Card that can run the vulkan instance.
+        // 1.3 - Enumerate available devices
+        uint32_t deviceCount = 0;
+
+        // Get the available devices.
+        vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
+        // If there are no devices, no way to run the app.
+        if (deviceCount == 0) {
+            throw std::runtime_error("No physical devices capable of run vulkan!");
+        }
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        // Populate stuff.
+        vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
+
+        // Loop devices and grab the first one that is lit.
+        for (const auto& device: devices) {
+            // Check if the device works depending on what we need.
+            if (isDeviceSuitable(device)) {
+                physicalDevice = device;
+                break;
+            }
+        }
+        if (physicalDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("No physical devices have the capabilities to run our program.");
+        }
+    }
+
+    bool isDeviceSuitable(VkPhysicalDevice device) {
+        // Once the struct is defined we can modify it.
+        QueueFamilyIndexes indices = findQueueFamilies(device);
+        return indices.isComplete();
+    }
+
+    // 1.5 - Queues
+    // All the actions that we give the GPU are put in a queue.
+    // Las colas pertenecen a familias que tiene caracteristicas / capacidades particulares
+    // es necesario que verifiquemos la capacidad de nuestro GPU vs nuestra expectativas.
+    QueueFamilyIndexes findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndexes indexes;
+        uint32_t queueFamilyCount = 0;
+        
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+        
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indexes.graphicsFamily = i;
+            }
+
+            if (indexes.isComplete()) {
+                break;
+            }
+            i++;
+        }
+        return indexes;
     }
 
     void createVulkanInstance() {
@@ -80,7 +213,7 @@ class FirstVulkanExample {
         info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
         info.pEngineName = "None";
         info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        info.apiVersion = VK_VERSION_1_0;
+        info.apiVersion = VK_API_VERSION_1_0;
 
         // Variables needed to get extensions.
         // We want that the instance of the Vulkan app can interact with GLFW.
@@ -95,7 +228,6 @@ class FirstVulkanExample {
         createInfo.pApplicationInfo = &info;
         createInfo.enabledExtensionCount = glfwExtensionCount;
         createInfo.ppEnabledExtensionNames = glfwExtensions;
-
         // Add to instance validation layers.
         if (enableValidationLayers) {
             createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
@@ -103,9 +235,8 @@ class FirstVulkanExample {
         } else {
             createInfo.enabledLayerCount = 0;
         }
-
         // Optional use the object result to verify results.
-        VkResult result = vkCreateInstance(&createInfo, nullptr, &instance);
+        VkResult result = vkCreateInstance(&createInfo, NULL, &instance);
     }
 
     bool checkValidationLayerSupport() {
@@ -153,6 +284,10 @@ class FirstVulkanExample {
         biniutils::logstdout("Cleaning up application.");
         glfwDestroyWindow(window);
         glfwTerminate();
+
+        // 1.10 - Destroy the logical device.
+        vkDestroyDevice(device, nullptr);
+
         // Clean Vulkan
         vkDestroyInstance(instance, nullptr);
     }
