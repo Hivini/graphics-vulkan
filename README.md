@@ -7,3 +7,8 @@
     - Determine if the physical device is compatible with our app.
 - Create logical device.
 - Obtain graphics queue reference of the logical device.
+- Create the surface to show the render later.
+- Create reference for presentation queue.
+- Create chain swap - Declare extensions
+- Modify create info to consider extension support in the logical device.
+- Left at 28
