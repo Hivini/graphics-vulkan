@@ -11,4 +11,5 @@
 - Create reference for presentation queue.
 - Create chain swap - Declare extensions
 - Modify create info to consider extension support in the logical device.
-- Left at 28
+- Setup values for swap chain
+- Create images to be used on swap chain.
